@@ -83,6 +83,19 @@ h1 {
   max-width: 440px;
 }
 
+/* Farm image */
+
+.farm-image {
+  margin-bottom: 5rem;
+}
+
+.farm-image img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 4px;
+}
+
 /* Content sections */
 
 .content {
