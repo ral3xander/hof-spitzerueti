@@ -90,72 +90,136 @@
       uniform float u_pitch;
       uniform float u_zoom;
 
-      float mbulb(vec3 p) {
-        vec3 z = p;
-        float dr = 1.0, r = 0.0;
-        for (int i = 0; i < 10; i++) {
-          r = length(z);
-          if (r > 2.0) break;
-          float theta = acos(clamp(z.z / r, -1.0, 1.0));
-          float phi   = atan(z.y, z.x);
-          dr = pow(r, 7.0) * 8.0 * dr + 1.0;
-          float zr = pow(r, 8.0);
-          theta *= 8.0; phi *= 8.0;
-          z = zr * vec3(sin(theta)*cos(phi), sin(phi)*sin(theta), cos(theta)) + p;
-        }
-        return 0.5 * log(r) * r / dr;
+      float sdEllipsoid(vec3 p, vec3 r) {
+        float k0 = length(p/r);
+        float k1 = length(p/(r*r));
+        return k0*(k0-1.0)/k1;
+      }
+
+      float sdCapsule(vec3 p, vec3 a, vec3 b, float r) {
+        vec3 pa = p-a, ba = b-a;
+        float h = clamp(dot(pa,ba)/dot(ba,ba), 0.0, 1.0);
+        return length(pa - ba*h) - r;
+      }
+
+      float smin(float a, float b, float k) {
+        float h = clamp(0.5+0.5*(b-a)/k, 0.0, 1.0);
+        return mix(b,a,h) - k*h*(1.0-h);
+      }
+
+      float scene(vec3 p) {
+        float t = u_time;
+
+        // Rippling surface displacement — the "trippy" morph
+        float disp = 0.045 * (
+          sin(p.x*7.0 + t*1.1) * sin(p.y*6.0 + t*0.9) * sin(p.z*5.0 + t*1.3) +
+          0.4 * sin(p.x*14.0 - t*1.8) * sin(p.y*13.0 + t) * sin(p.z*12.0 + t*0.7)
+        );
+
+        float breathe = 0.03 * sin(t * 1.2);
+
+        // Body
+        float body = sdEllipsoid(p, vec3(0.75+breathe, 0.42+breathe, 0.46+breathe));
+
+        // Head — nods gently
+        vec3 hp = p - vec3(0.83, 0.27 + 0.04*sin(t*0.9), 0.0);
+        float head = sdEllipsoid(hp, vec3(0.27, 0.25, 0.22));
+
+        // Ears
+        float ear1 = sdEllipsoid(p - vec3(0.79, 0.50,  0.19), vec3(0.10, 0.07, 0.05));
+        float ear2 = sdEllipsoid(p - vec3(0.79, 0.50, -0.19), vec3(0.10, 0.07, 0.05));
+
+        // Legs — subtle bounce
+        float lb = 0.015 * sin(t*1.8);
+        float leg1 = sdCapsule(p, vec3( 0.44,-0.41, 0.27), vec3( 0.44,-0.84+lb,  0.27), 0.09);
+        float leg2 = sdCapsule(p, vec3( 0.44,-0.41,-0.27), vec3( 0.44,-0.84+lb, -0.27), 0.09);
+        float leg3 = sdCapsule(p, vec3(-0.44,-0.41, 0.27), vec3(-0.44,-0.84-lb,  0.27), 0.09);
+        float leg4 = sdCapsule(p, vec3(-0.44,-0.41,-0.27), vec3(-0.44,-0.84-lb, -0.27), 0.09);
+
+        // Udder
+        float udder = sdEllipsoid(p - vec3(-0.12,-0.50, 0.0), vec3(0.18, 0.10, 0.15));
+
+        // Tail — wagging
+        float wag = 0.28 * sin(t*2.2);
+        float tail = sdCapsule(p, vec3(-0.74, 0.10, 0.0), vec3(-1.05, -0.18+wag, wag*0.5), 0.04);
+
+        float d = smin(body, head, 0.14);
+        d = smin(d, ear1, 0.05);
+        d = smin(d, ear2, 0.05);
+        d = smin(d, leg1, 0.07);
+        d = smin(d, leg2, 0.07);
+        d = smin(d, leg3, 0.07);
+        d = smin(d, leg4, 0.07);
+        d = smin(d, udder, 0.07);
+        d = min(d, tail);
+
+        return d + disp;
       }
 
       float march(vec3 ro, vec3 rd) {
-        float t = 0.5;
-        for (int i = 0; i < 72; i++) {
-          float d = mbulb(ro + rd * t);
-          if (d < 0.001) return t;
-          t += d * 0.45;
+        float t = 0.1;
+        for (int i = 0; i < 90; i++) {
+          float d = scene(ro + rd * t);
+          if (d < 0.002) return t;
+          t += max(d * 0.4, 0.001);
           if (t > 8.0) break;
         }
         return -1.0;
       }
 
-      vec3 norm(vec3 p) {
-        float e = 0.002;
+      vec3 getNorm(vec3 p) {
+        float e = 0.003;
         return normalize(vec3(
-          mbulb(p+vec3(e,0,0)) - mbulb(p-vec3(e,0,0)),
-          mbulb(p+vec3(0,e,0)) - mbulb(p-vec3(0,e,0)),
-          mbulb(p+vec3(0,0,e)) - mbulb(p-vec3(0,0,e))
+          scene(p+vec3(e,0,0)) - scene(p-vec3(e,0,0)),
+          scene(p+vec3(0,e,0)) - scene(p-vec3(0,e,0)),
+          scene(p+vec3(0,0,e)) - scene(p-vec3(0,0,e))
         ));
       }
 
-      void main() {
-        vec2 uv = (gl_FragCoord.xy - 0.5 * u_res) / min(u_res.x, u_res.y);
+      float ao(vec3 p, vec3 n) {
+        float occ = 0.0, s = 1.0;
+        for (int i = 0; i < 4; i++) {
+          float h = 0.02 + 0.1 * float(i) / 3.0;
+          occ += (h - scene(p + n*h)) * s;
+          s *= 0.85;
+        }
+        return clamp(1.0 - 3.5*occ, 0.0, 1.0);
+      }
 
-        float cy = cos(u_yaw),   sy = sin(u_yaw);
+      void main() {
+        vec2 uv = (gl_FragCoord.xy - 0.5*u_res) / min(u_res.x, u_res.y);
+
+        float cy = cos(u_yaw), sy = sin(u_yaw);
         float cp = cos(u_pitch), sp = sin(u_pitch);
         vec3 ro  = u_zoom * vec3(cy*cp, sp, sy*cp);
         vec3 fwd = normalize(-ro);
-        vec3 rgt = normalize(cross(fwd, vec3(0.0, 1.0, 0.0)));
+        vec3 rgt = normalize(cross(fwd, vec3(0.0,1.0,0.0)));
         vec3 up  = cross(rgt, fwd);
         vec3 rd  = normalize(fwd + uv.x*rgt + uv.y*up);
 
         float t = march(ro, rd);
         if (t < 0.0) {
-          gl_FragColor = vec4(0.01, 0.01, 0.03, 1.0);
+          gl_FragColor = vec4(0.04, 0.02, 0.10, 1.0);
           return;
         }
 
-        vec3 p  = ro + rd * t;
-        vec3 n  = norm(p);
-        vec3 ld = normalize(vec3(1.0, 1.5, -0.5));
+        vec3 p = ro + rd * t;
+        vec3 n = getNorm(p);
+        float occ = ao(p, n);
 
-        float diff = max(dot(n, ld), 0.0);
-        float spec = pow(max(dot(reflect(-ld, n), -rd), 0.0), 24.0);
-        float rim  = 1.0 - max(dot(n, -rd), 0.0);
+        vec3 ld1 = normalize(vec3(1.0, 1.5, 0.5));
+        vec3 ld2 = normalize(vec3(-1.0, 0.5, -1.0));
+        float d1   = max(dot(n, ld1), 0.0);
+        float d2   = max(dot(n, ld2), 0.0) * 0.35;
+        float spec = pow(max(dot(reflect(-ld1, n), -rd), 0.0), 28.0);
+        float rim  = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
 
-        vec3 trap = vec3(length(p.xy), length(p.yz), length(p.xz));
-        vec3 col  = 0.5 + 0.5 * cos(6.2832 * (vec3(0.0, 0.33, 0.67) + trap * 1.8 + u_time * 0.2));
-        col *= 0.25 + 0.75 * diff;
-        col += spec * vec3(0.9, 0.95, 1.0);
-        col += rim * rim * vec3(0.1, 0.04, 0.25) * 0.6;
+        // Vivid rainbow — hue driven by normal + world pos + time
+        float hue = dot(n, vec3(0.5, 0.8, 0.3)) + p.y*0.6 + u_time*0.18;
+        vec3 col = 0.65 + 0.65 * cos(6.2832*(vec3(0.0, 0.33, 0.67) + hue));
+        col *= (d1 + d2 + 0.18) * occ;
+        col += spec * 1.4 * vec3(1.0, 0.96, 0.9);
+        col += rim * vec3(0.5, 0.1, 1.0) * 0.9;
 
         gl_FragColor = vec4(col, 1.0);
       }
@@ -183,7 +247,7 @@
     const uPitch = gl.getUniformLocation(prog, 'u_pitch');
     const uZoom  = gl.getUniformLocation(prog, 'u_zoom');
 
-    let yaw = 0.4, pitch = 0.3, zoom = 2.5;
+    let yaw = 0.4, pitch = 0.15, zoom = 2.8;
     let autoYaw = true, dragging = false, lastX = 0, lastY = 0;
     let raf = null, active = false;
     const t0 = performance.now();
@@ -200,7 +264,7 @@
       if (!active) return;
       raf = requestAnimationFrame(render);
       const t = (performance.now() - t0) / 1000;
-      if (autoYaw) yaw = t * 0.15;
+      if (autoYaw) yaw = t * 0.18;
       gl.uniform2f(uRes, canvas.width, canvas.height);
       gl.uniform1f(uTime, t);
       gl.uniform1f(uYaw, yaw);
@@ -226,7 +290,7 @@
 
     canvas.addEventListener('wheel', e => {
       e.preventDefault();
-      zoom = Math.max(1.3, Math.min(4.5, zoom * (1 + e.deltaY * 0.001)));
+      zoom = Math.max(1.5, Math.min(5.0, zoom * (1 + e.deltaY * 0.001)));
     }, { passive: false });
 
     let lastPinch = null;
@@ -244,7 +308,7 @@
       }
       if (e.touches.length === 2) {
         const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-        if (lastPinch) zoom = Math.max(1.3, Math.min(4.5, zoom * lastPinch / d));
+        if (lastPinch) zoom = Math.max(1.5, Math.min(5.0, zoom * lastPinch / d));
         lastPinch = d;
       }
     }, { passive: false });
