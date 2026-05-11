@@ -90,12 +90,6 @@
       uniform float u_pitch;
       uniform float u_zoom;
 
-      float sdEllipsoid(vec3 p, vec3 r) {
-        float k0 = length(p/r);
-        float k1 = length(p/(r*r));
-        return k0*(k0-1.0)/k1;
-      }
-
       float sdCapsule(vec3 p, vec3 a, vec3 b, float r) {
         vec3 pa = p-a, ba = b-a;
         float h = clamp(dot(pa,ba)/dot(ba,ba), 0.0, 1.0);
@@ -107,62 +101,62 @@
         return mix(b,a,h) - k*h*(1.0-h);
       }
 
+      // Real Mandelbulb DE — power animates for morphing
+      float mbulb(vec3 p) {
+        float power = 5.0 + 4.0*sin(u_time*0.22);
+        vec3 z = p;
+        float dr = 1.0, r = 0.0;
+        for (int i = 0; i < 12; i++) {
+          r = length(z);
+          if (r > 2.0) break;
+          float theta = acos(clamp(z.z/r, -1.0, 1.0));
+          float phi   = atan(z.y, z.x);
+          dr = pow(r, power-1.0)*power*dr + 1.0;
+          float zr = pow(r, power);
+          theta *= power; phi *= power;
+          z = zr*vec3(sin(theta)*cos(phi), sin(phi)*sin(theta), cos(theta)) + p;
+        }
+        return 0.5*log(r)*r/dr;
+      }
+
       float scene(vec3 p) {
         float t = u_time;
+        // Non-uniform scale: elongates Mandelbulb in x → cow body proportions
+        vec3 q = p * vec3(1.55, 2.1, 1.9);
+        float body = mbulb(q) / 2.1;  // compensate Lipschitz constant
 
-        // Rippling surface displacement — the "trippy" morph
-        float disp = 0.045 * (
-          sin(p.x*7.0 + t*1.1) * sin(p.y*6.0 + t*0.9) * sin(p.z*5.0 + t*1.3) +
-          0.4 * sin(p.x*14.0 - t*1.8) * sin(p.y*13.0 + t) * sin(p.z*12.0 + t*0.7)
-        );
+        float lb = 0.015*sin(t*1.6);
+        float leg1 = sdCapsule(p, vec3( 0.48,-0.52, 0.27), vec3( 0.48,-0.98+lb,  0.27), 0.09);
+        float leg2 = sdCapsule(p, vec3( 0.48,-0.52,-0.27), vec3( 0.48,-0.98+lb, -0.27), 0.09);
+        float leg3 = sdCapsule(p, vec3(-0.38,-0.52, 0.27), vec3(-0.38,-0.98-lb,  0.27), 0.09);
+        float leg4 = sdCapsule(p, vec3(-0.38,-0.52,-0.27), vec3(-0.38,-0.98-lb, -0.27), 0.09);
 
-        float breathe = 0.03 * sin(t * 1.2);
+        float head = length(p - vec3(0.82, 0.22, 0.0)) - 0.27;
+        float ear1 = length(p - vec3(0.76, 0.50,  0.18)) - 0.10;
+        float ear2 = length(p - vec3(0.76, 0.50, -0.18)) - 0.10;
 
-        // Body
-        float body = sdEllipsoid(p, vec3(0.75+breathe, 0.42+breathe, 0.46+breathe));
+        float wag  = 0.3*sin(t*2.3);
+        float tail = sdCapsule(p, vec3(-0.78, 0.08, 0.0), vec3(-1.1,-0.15+wag, wag*0.4), 0.045);
 
-        // Head — nods gently
-        vec3 hp = p - vec3(0.83, 0.27 + 0.04*sin(t*0.9), 0.0);
-        float head = sdEllipsoid(hp, vec3(0.27, 0.25, 0.22));
-
-        // Ears
-        float ear1 = sdEllipsoid(p - vec3(0.79, 0.50,  0.19), vec3(0.10, 0.07, 0.05));
-        float ear2 = sdEllipsoid(p - vec3(0.79, 0.50, -0.19), vec3(0.10, 0.07, 0.05));
-
-        // Legs — subtle bounce
-        float lb = 0.015 * sin(t*1.8);
-        float leg1 = sdCapsule(p, vec3( 0.44,-0.41, 0.27), vec3( 0.44,-0.84+lb,  0.27), 0.09);
-        float leg2 = sdCapsule(p, vec3( 0.44,-0.41,-0.27), vec3( 0.44,-0.84+lb, -0.27), 0.09);
-        float leg3 = sdCapsule(p, vec3(-0.44,-0.41, 0.27), vec3(-0.44,-0.84-lb,  0.27), 0.09);
-        float leg4 = sdCapsule(p, vec3(-0.44,-0.41,-0.27), vec3(-0.44,-0.84-lb, -0.27), 0.09);
-
-        // Udder
-        float udder = sdEllipsoid(p - vec3(-0.12,-0.50, 0.0), vec3(0.18, 0.10, 0.15));
-
-        // Tail — wagging
-        float wag = 0.28 * sin(t*2.2);
-        float tail = sdCapsule(p, vec3(-0.74, 0.10, 0.0), vec3(-1.05, -0.18+wag, wag*0.5), 0.04);
-
-        float d = smin(body, head, 0.14);
-        d = smin(d, ear1, 0.05);
-        d = smin(d, ear2, 0.05);
-        d = smin(d, leg1, 0.07);
-        d = smin(d, leg2, 0.07);
-        d = smin(d, leg3, 0.07);
-        d = smin(d, leg4, 0.07);
-        d = smin(d, udder, 0.07);
+        float d = body;
+        d = smin(d, head, 0.12);
+        d = smin(d, ear1, 0.06);
+        d = smin(d, ear2, 0.06);
+        d = smin(d, leg1, 0.09);
+        d = smin(d, leg2, 0.09);
+        d = smin(d, leg3, 0.09);
+        d = smin(d, leg4, 0.09);
         d = min(d, tail);
-
-        return d + disp;
+        return d;
       }
 
       float march(vec3 ro, vec3 rd) {
         float t = 0.1;
-        for (int i = 0; i < 90; i++) {
-          float d = scene(ro + rd * t);
+        for (int i = 0; i < 110; i++) {
+          float d = scene(ro + rd*t);
           if (d < 0.002) return t;
-          t += max(d * 0.4, 0.001);
-          if (t > 8.0) break;
+          t += max(d*0.28, 0.001);
+          if (t > 9.0) break;
         }
         return -1.0;
       }
@@ -170,58 +164,70 @@
       vec3 getNorm(vec3 p) {
         float e = 0.003;
         return normalize(vec3(
-          scene(p+vec3(e,0,0)) - scene(p-vec3(e,0,0)),
-          scene(p+vec3(0,e,0)) - scene(p-vec3(0,e,0)),
-          scene(p+vec3(0,0,e)) - scene(p-vec3(0,0,e))
+          scene(p+vec3(e,0,0))-scene(p-vec3(e,0,0)),
+          scene(p+vec3(0,e,0))-scene(p-vec3(0,e,0)),
+          scene(p+vec3(0,0,e))-scene(p-vec3(0,0,e))
         ));
       }
 
-      float ao(vec3 p, vec3 n) {
-        float occ = 0.0, s = 1.0;
-        for (int i = 0; i < 4; i++) {
-          float h = 0.02 + 0.1 * float(i) / 3.0;
-          occ += (h - scene(p + n*h)) * s;
-          s *= 0.85;
+      // Orbit trap: captures minimum distances during Mandelbulb iteration
+      // gives wildly different colors per fractal feature
+      vec3 orbitTrap(vec3 p) {
+        float power = 5.0 + 4.0*sin(u_time*0.22);
+        vec3 c = p * vec3(1.55, 2.1, 1.9);
+        vec3 z = c;
+        vec3 trap = vec3(1e4);
+        float r;
+        for (int i = 0; i < 12; i++) {
+          r = length(z);
+          if (r > 2.0) break;
+          trap = min(trap, vec3(abs(z.x), abs(z.y)*0.7 + r*0.3, length(z.xy)));
+          float theta = acos(clamp(z.z/r,-1.0,1.0));
+          float phi   = atan(z.y, z.x);
+          float zr    = pow(r, power);
+          theta *= power; phi *= power;
+          z = zr*vec3(sin(theta)*cos(phi),sin(phi)*sin(theta),cos(theta)) + c;
         }
-        return clamp(1.0 - 3.5*occ, 0.0, 1.0);
+        return clamp(trap, 0.0, 1.5);
       }
 
       void main() {
-        vec2 uv = (gl_FragCoord.xy - 0.5*u_res) / min(u_res.x, u_res.y);
+        vec2 uv = (gl_FragCoord.xy - 0.5*u_res) / min(u_res.x,u_res.y);
 
         float cy = cos(u_yaw), sy = sin(u_yaw);
         float cp = cos(u_pitch), sp = sin(u_pitch);
-        vec3 ro  = u_zoom * vec3(cy*cp, sp, sy*cp);
+        vec3 ro  = u_zoom*vec3(cy*cp,sp,sy*cp);
         vec3 fwd = normalize(-ro);
-        vec3 rgt = normalize(cross(fwd, vec3(0.0,1.0,0.0)));
-        vec3 up  = cross(rgt, fwd);
-        vec3 rd  = normalize(fwd + uv.x*rgt + uv.y*up);
+        vec3 rgt = normalize(cross(fwd,vec3(0,1,0)));
+        vec3 up  = cross(rgt,fwd);
+        vec3 rd  = normalize(fwd+uv.x*rgt+uv.y*up);
 
-        float t = march(ro, rd);
+        float t = march(ro,rd);
         if (t < 0.0) {
-          gl_FragColor = vec4(0.04, 0.02, 0.10, 1.0);
+          gl_FragColor = vec4(0.03,0.01,0.08,1.0);
           return;
         }
 
-        vec3 p = ro + rd * t;
-        vec3 n = getNorm(p);
-        float occ = ao(p, n);
+        vec3 p    = ro+rd*t;
+        vec3 n    = getNorm(p);
+        vec3 trap = orbitTrap(p);
 
-        vec3 ld1 = normalize(vec3(1.0, 1.5, 0.5));
-        vec3 ld2 = normalize(vec3(-1.0, 0.5, -1.0));
-        float d1   = max(dot(n, ld1), 0.0);
-        float d2   = max(dot(n, ld2), 0.0) * 0.35;
-        float spec = pow(max(dot(reflect(-ld1, n), -rd), 0.0), 28.0);
-        float rim  = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
+        vec3 ld1 = normalize(vec3(1.0,1.5,0.5));
+        vec3 ld2 = normalize(vec3(-0.8,0.3,-1.0));
+        float d1   = max(dot(n,ld1),0.0);
+        float d2   = max(dot(n,ld2),0.0)*0.3;
+        float spec = pow(max(dot(reflect(-ld1,n),-rd),0.0),32.0);
+        float rim  = pow(1.0-max(dot(n,-rd),0.0),3.0);
 
-        // Vivid rainbow — hue driven by normal + world pos + time
-        float hue = dot(n, vec3(0.5, 0.8, 0.3)) + p.y*0.6 + u_time*0.18;
-        vec3 col = 0.65 + 0.65 * cos(6.2832*(vec3(0.0, 0.33, 0.67) + hue));
-        col *= (d1 + d2 + 0.18) * occ;
-        col += spec * 1.4 * vec3(1.0, 0.96, 0.9);
-        col += rim * vec3(0.5, 0.1, 1.0) * 0.9;
+        // Orbit trap drives the color — each fractal feature gets unique hue
+        vec3 col = 0.7+0.7*cos(6.2832*(vec3(0.0,0.33,0.67) + trap.x + u_time*0.15));
+        col = mix(col, 0.7+0.7*cos(6.2832*(vec3(0.5,0.16,0.83)+trap.z*0.8+u_time*0.12)),
+                  trap.y/(trap.y+0.5));
+        col *= d1+d2+0.15;
+        col += spec*1.6*vec3(1.0,0.96,0.88);
+        col += rim*1.3*vec3(0.55,0.05,1.0);
 
-        gl_FragColor = vec4(col, 1.0);
+        gl_FragColor = vec4(clamp(col,0.0,1.0),1.0);
       }
     `;
 
