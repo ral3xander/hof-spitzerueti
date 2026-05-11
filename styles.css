@@ -83,6 +83,32 @@ h1 {
   max-width: 440px;
 }
 
+/* Fractal */
+
+.fractal-section {
+  margin-bottom: 5rem;
+}
+
+#fractal-canvas {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  display: block;
+  border-radius: 4px;
+  cursor: grab;
+  background: #010106;
+}
+
+#fractal-canvas:active {
+  cursor: grabbing;
+}
+
+.fractal-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 0.5rem;
+}
+
 /* Farm image */
 
 .farm-image {

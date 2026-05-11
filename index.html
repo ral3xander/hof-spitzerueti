@@ -39,6 +39,11 @@
       <p class="tagline">Ein ruhiger Familienbetrieb mit traditionellen Werten, frischen Produkten und Naturgenuss.</p>
     </section>
 
+    <section class="fractal-section">
+      <canvas id="fractal-canvas"></canvas>
+      <p class="fractal-hint">drag · scroll to explore</p>
+    </section>
+
     <section class="farm-image">
       <img src="IMG_1085.jpeg" alt="Hof Spitzerüti – Blick auf den Hof" loading="lazy">
     </section>
@@ -65,5 +70,193 @@
   <footer class="footer">
     <p>Hof Spitzerüti · Thurgau · Einfach, ehrlich, regional.</p>
   </footer>
+
+  <script>
+  (function () {
+    const canvas = document.getElementById('fractal-canvas');
+    const gl = canvas.getContext('webgl');
+    if (!gl) return;
+
+    const vs = `
+      attribute vec2 a_pos;
+      void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
+    `;
+
+    const fs = `
+      precision highp float;
+      uniform vec2  u_res;
+      uniform float u_time;
+      uniform float u_yaw;
+      uniform float u_pitch;
+      uniform float u_zoom;
+
+      float mbulb(vec3 p) {
+        vec3 z = p;
+        float dr = 1.0, r = 0.0;
+        for (int i = 0; i < 10; i++) {
+          r = length(z);
+          if (r > 2.0) break;
+          float theta = acos(clamp(z.z / r, -1.0, 1.0));
+          float phi   = atan(z.y, z.x);
+          dr = pow(r, 7.0) * 8.0 * dr + 1.0;
+          float zr = pow(r, 8.0);
+          theta *= 8.0; phi *= 8.0;
+          z = zr * vec3(sin(theta)*cos(phi), sin(phi)*sin(theta), cos(theta)) + p;
+        }
+        return 0.5 * log(r) * r / dr;
+      }
+
+      float march(vec3 ro, vec3 rd) {
+        float t = 0.5;
+        for (int i = 0; i < 72; i++) {
+          float d = mbulb(ro + rd * t);
+          if (d < 0.001) return t;
+          t += d * 0.45;
+          if (t > 8.0) break;
+        }
+        return -1.0;
+      }
+
+      vec3 norm(vec3 p) {
+        float e = 0.002;
+        return normalize(vec3(
+          mbulb(p+vec3(e,0,0)) - mbulb(p-vec3(e,0,0)),
+          mbulb(p+vec3(0,e,0)) - mbulb(p-vec3(0,e,0)),
+          mbulb(p+vec3(0,0,e)) - mbulb(p-vec3(0,0,e))
+        ));
+      }
+
+      void main() {
+        vec2 uv = (gl_FragCoord.xy - 0.5 * u_res) / min(u_res.x, u_res.y);
+
+        float cy = cos(u_yaw),   sy = sin(u_yaw);
+        float cp = cos(u_pitch), sp = sin(u_pitch);
+        vec3 ro  = u_zoom * vec3(cy*cp, sp, sy*cp);
+        vec3 fwd = normalize(-ro);
+        vec3 rgt = normalize(cross(fwd, vec3(0.0, 1.0, 0.0)));
+        vec3 up  = cross(rgt, fwd);
+        vec3 rd  = normalize(fwd + uv.x*rgt + uv.y*up);
+
+        float t = march(ro, rd);
+        if (t < 0.0) {
+          gl_FragColor = vec4(0.01, 0.01, 0.03, 1.0);
+          return;
+        }
+
+        vec3 p  = ro + rd * t;
+        vec3 n  = norm(p);
+        vec3 ld = normalize(vec3(1.0, 1.5, -0.5));
+
+        float diff = max(dot(n, ld), 0.0);
+        float spec = pow(max(dot(reflect(-ld, n), -rd), 0.0), 24.0);
+        float rim  = 1.0 - max(dot(n, -rd), 0.0);
+
+        vec3 trap = vec3(length(p.xy), length(p.yz), length(p.xz));
+        vec3 col  = 0.5 + 0.5 * cos(6.2832 * (vec3(0.0, 0.33, 0.67) + trap * 1.8 + u_time * 0.2));
+        col *= 0.25 + 0.75 * diff;
+        col += spec * vec3(0.9, 0.95, 1.0);
+        col += rim * rim * vec3(0.1, 0.04, 0.25) * 0.6;
+
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `;
+
+    function compile(type, src) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src); gl.compileShader(s); return s;
+    }
+    const prog = gl.createProgram();
+    gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
+    gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(prog); gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(prog, 'a_pos');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    const uRes   = gl.getUniformLocation(prog, 'u_res');
+    const uTime  = gl.getUniformLocation(prog, 'u_time');
+    const uYaw   = gl.getUniformLocation(prog, 'u_yaw');
+    const uPitch = gl.getUniformLocation(prog, 'u_pitch');
+    const uZoom  = gl.getUniformLocation(prog, 'u_zoom');
+
+    let yaw = 0.4, pitch = 0.3, zoom = 2.5;
+    let autoYaw = true, dragging = false, lastX = 0, lastY = 0;
+    let raf = null, active = false;
+    const t0 = performance.now();
+
+    function resize() {
+      const r = canvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      canvas.width  = r.width  * dpr;
+      canvas.height = r.height * dpr;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+
+    function render() {
+      if (!active) return;
+      raf = requestAnimationFrame(render);
+      const t = (performance.now() - t0) / 1000;
+      if (autoYaw) yaw = t * 0.15;
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform1f(uTime, t);
+      gl.uniform1f(uYaw, yaw);
+      gl.uniform1f(uPitch, pitch);
+      gl.uniform1f(uZoom, zoom);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    function start() { if (!active) { active = true; render(); } }
+    function stop()  { active = false; cancelAnimationFrame(raf); }
+
+    canvas.addEventListener('mousedown', e => {
+      dragging = true; autoYaw = false;
+      lastX = e.clientX; lastY = e.clientY;
+    });
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      yaw   += (e.clientX - lastX) * 0.005;
+      pitch  = Math.max(-1.2, Math.min(1.2, pitch + (e.clientY - lastY) * 0.005));
+      lastX = e.clientX; lastY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => { dragging = false; });
+
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      zoom = Math.max(1.3, Math.min(4.5, zoom * (1 + e.deltaY * 0.001)));
+    }, { passive: false });
+
+    let lastPinch = null;
+    canvas.addEventListener('touchstart', e => {
+      autoYaw = false;
+      if (e.touches.length === 1) { lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; }
+      if (e.touches.length === 2)  lastPinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    }, { passive: true });
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        yaw   += (e.touches[0].clientX - lastX) * 0.005;
+        pitch  = Math.max(-1.2, Math.min(1.2, pitch + (e.touches[0].clientY - lastY) * 0.005));
+        lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+      }
+      if (e.touches.length === 2) {
+        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        if (lastPinch) zoom = Math.max(1.3, Math.min(4.5, zoom * lastPinch / d));
+        lastPinch = d;
+      }
+    }, { passive: false });
+    canvas.addEventListener('touchend', () => { lastPinch = null; });
+
+    new IntersectionObserver(entries => {
+      entries[0].isIntersecting ? start() : stop();
+    }, { threshold: 0.1 }).observe(canvas);
+
+    window.addEventListener('resize', resize);
+    resize();
+  })();
+  </script>
 </body>
 </html>
