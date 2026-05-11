@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ral3xander.github.io/hof-spitzerueti/sitemap.xml
