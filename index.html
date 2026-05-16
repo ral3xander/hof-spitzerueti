@@ -3,39 +3,330 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hof Spitzerüti – Wartung</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #f5f0e8;
-      font-family: Georgia, serif;
-      color: #3a3228;
-      text-align: center;
-      padding: 2rem;
-    }
-    .container { max-width: 480px; }
-    h1 { font-size: 1.8rem; margin-bottom: 1rem; }
-    p { font-size: 1.05rem; line-height: 1.6; color: #5a4e42; }
-    .divider {
-      width: 48px;
-      height: 2px;
-      background: #8b6f47;
-      margin: 1.5rem auto;
-    }
-    a { color: #8b6f47; }
-  </style>
+  <meta name="description" content="Hof Spitzerüti – ein kleiner Familienbetrieb in Thurgau mit frischen lokalen Produkten, Nachhaltigkeit und herzlicher Gastfreundschaft.">
+  <title>Hof Spitzerüti · Thurgau</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    "name": "Hof Spitzerüti",
+    "description": "Kleiner Familienbetrieb in Thurgau mit frischen lokalen Produkten, Nachhaltigkeit und herzlicher Gastfreundschaft.",
+    "address": {
+      "@type": "PostalAddress",
+      "addressRegion": "Thurgau",
+      "addressCountry": "CH"
+    },
+    "email": "kontakt@hofspitzerueti.ch",
+    "url": "https://ral3xander.github.io/hof-spitzerueti/"
+  }
+  </script>
 </head>
 <body>
-  <div class="container">
-    <h1>Hof Spitzerüti</h1>
-    <div class="divider"></div>
-    <p>Unsere Website befindet sich momentan in Wartung.<br>Wir sind bald wieder für Sie da.</p>
-    <div class="divider"></div>
-    <p>Bei Fragen erreichen Sie uns unter:<br><a href="mailto:kontakt@hofspitzerueti.ch">kontakt@hofspitzerueti.ch</a></p>
-  </div>
+  <nav class="nav">
+    <span class="nav-brand">Hof Spitzerüti</span>
+    <ul class="nav-links">
+      <li><a href="#ueber">Über uns</a></li>
+      <li><a href="#produkte">Produkte</a></li>
+      <li><a href="#kontakt">Kontakt</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <p class="location">◌ Thurgau, Schweiz</p>
+      <h1>Hof<br>Spitzerüti</h1>
+      <p class="tagline">Ein ruhiger Familienbetrieb mit traditionellen Werten, frischen Produkten und Naturgenuss.</p>
+    </section>
+
+    <section class="fractal-section">
+      <canvas id="fractal-canvas"></canvas>
+      <p class="fractal-hint">drag · scroll to explore</p>
+    </section>
+
+    <section class="farm-image">
+      <img src="IMG_1085.jpeg" alt="Hof Spitzerüti – Blick auf den Hof" loading="lazy">
+    </section>
+
+    <section class="content" id="ueber">
+      <h2>Über uns</h2>
+      <p>Hof Spitzerüti ist ein kleiner Hof im Herzen des Thurgaus. Wir setzen auf Nachhaltigkeit, herzliche Gastfreundschaft und hochwertige lokale Produkte — so wie es hier schon immer Tradition war.</p>
+    </section>
+
+    <section class="content" id="produkte">
+      <h2>Produkte</h2>
+      <p>Frisches Obst, Gemüse, Eier und saisonale Spezialitäten direkt vom Hof. Ideal für alle, die echte Schweizer Landwirtschaft erleben und unterstützen wollen.</p>
+    </section>
+
+    <section class="content" id="kontakt">
+      <h2>Kontakt</h2>
+      <ul class="contact-list">
+        <li>→ Thurgau, Schweiz</li>
+        <li>→ <a href="mailto:kontakt@hofspitzerueti.ch">kontakt@hofspitzerueti.ch</a></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Hof Spitzerüti · Thurgau · Einfach, ehrlich, regional.</p>
+  </footer>
+
+  <script>
+  (function () {
+    const canvas = document.getElementById('fractal-canvas');
+    const gl = canvas.getContext('webgl');
+    if (!gl) return;
+
+    const vs = `
+      attribute vec2 a_pos;
+      void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
+    `;
+
+    const fs = `
+      precision highp float;
+      uniform vec2  u_res;
+      uniform float u_time;
+      uniform float u_yaw;
+      uniform float u_pitch;
+      uniform float u_zoom;
+
+      float sdCapsule(vec3 p, vec3 a, vec3 b, float r) {
+        vec3 pa = p-a, ba = b-a;
+        float h = clamp(dot(pa,ba)/dot(ba,ba), 0.0, 1.0);
+        return length(pa - ba*h) - r;
+      }
+
+      float smin(float a, float b, float k) {
+        float h = clamp(0.5+0.5*(b-a)/k, 0.0, 1.0);
+        return mix(b,a,h) - k*h*(1.0-h);
+      }
+
+      // Real Mandelbulb DE — power animates for morphing
+      float mbulb(vec3 p) {
+        float power = 5.0 + 4.0*sin(u_time*0.22);
+        vec3 z = p;
+        float dr = 1.0, r = 0.0;
+        for (int i = 0; i < 12; i++) {
+          r = length(z);
+          if (r > 2.0) break;
+          float theta = acos(clamp(z.z/r, -1.0, 1.0));
+          float phi   = atan(z.y, z.x);
+          dr = pow(r, power-1.0)*power*dr + 1.0;
+          float zr = pow(r, power);
+          theta *= power; phi *= power;
+          z = zr*vec3(sin(theta)*cos(phi), sin(phi)*sin(theta), cos(theta)) + p;
+        }
+        return 0.5*log(r)*r/dr;
+      }
+
+      float scene(vec3 p) {
+        float t = u_time;
+        // Non-uniform scale: elongates Mandelbulb in x → cow body proportions
+        vec3 q = p * vec3(1.55, 2.1, 1.9);
+        float body = mbulb(q) / 2.1;  // compensate Lipschitz constant
+
+        float lb = 0.015*sin(t*1.6);
+        float leg1 = sdCapsule(p, vec3( 0.48,-0.52, 0.27), vec3( 0.48,-0.98+lb,  0.27), 0.09);
+        float leg2 = sdCapsule(p, vec3( 0.48,-0.52,-0.27), vec3( 0.48,-0.98+lb, -0.27), 0.09);
+        float leg3 = sdCapsule(p, vec3(-0.38,-0.52, 0.27), vec3(-0.38,-0.98-lb,  0.27), 0.09);
+        float leg4 = sdCapsule(p, vec3(-0.38,-0.52,-0.27), vec3(-0.38,-0.98-lb, -0.27), 0.09);
+
+        float head = length(p - vec3(0.82, 0.22, 0.0)) - 0.27;
+        float ear1 = length(p - vec3(0.76, 0.50,  0.18)) - 0.10;
+        float ear2 = length(p - vec3(0.76, 0.50, -0.18)) - 0.10;
+
+        float wag  = 0.3*sin(t*2.3);
+        float tail = sdCapsule(p, vec3(-0.78, 0.08, 0.0), vec3(-1.1,-0.15+wag, wag*0.4), 0.045);
+
+        float d = body;
+        d = smin(d, head, 0.12);
+        d = smin(d, ear1, 0.06);
+        d = smin(d, ear2, 0.06);
+        d = smin(d, leg1, 0.09);
+        d = smin(d, leg2, 0.09);
+        d = smin(d, leg3, 0.09);
+        d = smin(d, leg4, 0.09);
+        d = min(d, tail);
+        return d;
+      }
+
+      float march(vec3 ro, vec3 rd) {
+        float t = 0.1;
+        for (int i = 0; i < 110; i++) {
+          float d = scene(ro + rd*t);
+          if (d < 0.002) return t;
+          t += max(d*0.28, 0.001);
+          if (t > 9.0) break;
+        }
+        return -1.0;
+      }
+
+      vec3 getNorm(vec3 p) {
+        float e = 0.003;
+        return normalize(vec3(
+          scene(p+vec3(e,0,0))-scene(p-vec3(e,0,0)),
+          scene(p+vec3(0,e,0))-scene(p-vec3(0,e,0)),
+          scene(p+vec3(0,0,e))-scene(p-vec3(0,0,e))
+        ));
+      }
+
+      // Orbit trap: captures minimum distances during Mandelbulb iteration
+      // gives wildly different colors per fractal feature
+      vec3 orbitTrap(vec3 p) {
+        float power = 5.0 + 4.0*sin(u_time*0.22);
+        vec3 c = p * vec3(1.55, 2.1, 1.9);
+        vec3 z = c;
+        vec3 trap = vec3(1e4);
+        float r;
+        for (int i = 0; i < 12; i++) {
+          r = length(z);
+          if (r > 2.0) break;
+          trap = min(trap, vec3(abs(z.x), abs(z.y)*0.7 + r*0.3, length(z.xy)));
+          float theta = acos(clamp(z.z/r,-1.0,1.0));
+          float phi   = atan(z.y, z.x);
+          float zr    = pow(r, power);
+          theta *= power; phi *= power;
+          z = zr*vec3(sin(theta)*cos(phi),sin(phi)*sin(theta),cos(theta)) + c;
+        }
+        return clamp(trap, 0.0, 1.5);
+      }
+
+      void main() {
+        vec2 uv = (gl_FragCoord.xy - 0.5*u_res) / min(u_res.x,u_res.y);
+
+        float cy = cos(u_yaw), sy = sin(u_yaw);
+        float cp = cos(u_pitch), sp = sin(u_pitch);
+        vec3 ro  = u_zoom*vec3(cy*cp,sp,sy*cp);
+        vec3 fwd = normalize(-ro);
+        vec3 rgt = normalize(cross(fwd,vec3(0,1,0)));
+        vec3 up  = cross(rgt,fwd);
+        vec3 rd  = normalize(fwd+uv.x*rgt+uv.y*up);
+
+        float t = march(ro,rd);
+        if (t < 0.0) {
+          gl_FragColor = vec4(0.03,0.01,0.08,1.0);
+          return;
+        }
+
+        vec3 p    = ro+rd*t;
+        vec3 n    = getNorm(p);
+        vec3 trap = orbitTrap(p);
+
+        vec3 ld1 = normalize(vec3(1.0,1.5,0.5));
+        vec3 ld2 = normalize(vec3(-0.8,0.3,-1.0));
+        float d1   = max(dot(n,ld1),0.0);
+        float d2   = max(dot(n,ld2),0.0)*0.3;
+        float spec = pow(max(dot(reflect(-ld1,n),-rd),0.0),32.0);
+        float rim  = pow(1.0-max(dot(n,-rd),0.0),3.0);
+
+        // Orbit trap drives the color — each fractal feature gets unique hue
+        vec3 col = 0.7+0.7*cos(6.2832*(vec3(0.0,0.33,0.67) + trap.x + u_time*0.15));
+        col = mix(col, 0.7+0.7*cos(6.2832*(vec3(0.5,0.16,0.83)+trap.z*0.8+u_time*0.12)),
+                  trap.y/(trap.y+0.5));
+        col *= d1+d2+0.15;
+        col += spec*1.6*vec3(1.0,0.96,0.88);
+        col += rim*1.3*vec3(0.55,0.05,1.0);
+
+        gl_FragColor = vec4(clamp(col,0.0,1.0),1.0);
+      }
+    `;
+
+    function compile(type, src) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src); gl.compileShader(s); return s;
+    }
+    const prog = gl.createProgram();
+    gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
+    gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(prog); gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(prog, 'a_pos');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    const uRes   = gl.getUniformLocation(prog, 'u_res');
+    const uTime  = gl.getUniformLocation(prog, 'u_time');
+    const uYaw   = gl.getUniformLocation(prog, 'u_yaw');
+    const uPitch = gl.getUniformLocation(prog, 'u_pitch');
+    const uZoom  = gl.getUniformLocation(prog, 'u_zoom');
+
+    let yaw = 0.4, pitch = 0.15, zoom = 2.8;
+    let autoYaw = true, dragging = false, lastX = 0, lastY = 0;
+    let raf = null, active = false;
+    const t0 = performance.now();
+
+    function resize() {
+      const r = canvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      canvas.width  = r.width  * dpr;
+      canvas.height = r.height * dpr;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+
+    function render() {
+      if (!active) return;
+      raf = requestAnimationFrame(render);
+      const t = (performance.now() - t0) / 1000;
+      if (autoYaw) yaw = t * 0.18;
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.uniform1f(uTime, t);
+      gl.uniform1f(uYaw, yaw);
+      gl.uniform1f(uPitch, pitch);
+      gl.uniform1f(uZoom, zoom);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    function start() { if (!active) { active = true; render(); } }
+    function stop()  { active = false; cancelAnimationFrame(raf); }
+
+    canvas.addEventListener('mousedown', e => {
+      dragging = true; autoYaw = false;
+      lastX = e.clientX; lastY = e.clientY;
+    });
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      yaw   += (e.clientX - lastX) * 0.005;
+      pitch  = Math.max(-1.2, Math.min(1.2, pitch + (e.clientY - lastY) * 0.005));
+      lastX = e.clientX; lastY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => { dragging = false; });
+
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      zoom = Math.max(1.5, Math.min(5.0, zoom * (1 + e.deltaY * 0.001)));
+    }, { passive: false });
+
+    let lastPinch = null;
+    canvas.addEventListener('touchstart', e => {
+      autoYaw = false;
+      if (e.touches.length === 1) { lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; }
+      if (e.touches.length === 2)  lastPinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    }, { passive: true });
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        yaw   += (e.touches[0].clientX - lastX) * 0.005;
+        pitch  = Math.max(-1.2, Math.min(1.2, pitch + (e.touches[0].clientY - lastY) * 0.005));
+        lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+      }
+      if (e.touches.length === 2) {
+        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        if (lastPinch) zoom = Math.max(1.5, Math.min(5.0, zoom * lastPinch / d));
+        lastPinch = d;
+      }
+    }, { passive: false });
+    canvas.addEventListener('touchend', () => { lastPinch = null; });
+
+    new IntersectionObserver(entries => {
+      entries[0].isIntersecting ? start() : stop();
+    }, { threshold: 0.1 }).observe(canvas);
+
+    window.addEventListener('resize', resize);
+    resize();
+  })();
+  </script>
 </body>
 </html>
